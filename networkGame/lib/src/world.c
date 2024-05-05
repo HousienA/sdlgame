@@ -22,12 +22,14 @@ bool checkCollision(Character *character, Wall *walls, int num_walls) {
     }
     
     //check if it's away from walls
+    /*
     for (int i = 0; i < num_walls; ++i) {
         if (character->dest.x + character->dest.w > walls[i].x_min && character->dest.x < walls[i].x_max &&
             character->dest.y + character->dest.h > walls[i].y_min && character->dest.y + character->dest.h / 2 < walls[i].y_max) {
             return TRUE;    // true if collision with wall...
         }
     }
+    */
     
     //no collision
     return FALSE;
