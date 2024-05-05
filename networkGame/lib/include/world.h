@@ -7,10 +7,10 @@
 //defines coordinates and areas in map
 #define MAP_WIDTH 1024
 #define MAP_HEIGHT 1024
-#define PLAYABLE_AREA_X_MIN 55
-#define PLAYABLE_AREA_X_MAX 970
-#define PLAYABLE_AREA_Y_MIN 70
-#define PLAYABLE_AREA_Y_MAX 975
+#define PLAYABLE_AREA_X_MIN 38
+#define PLAYABLE_AREA_X_MAX 760
+#define PLAYABLE_AREA_Y_MIN 55
+#define PLAYABLE_AREA_Y_MAX 763
 
 //struct for wall creation
 typedef struct {
