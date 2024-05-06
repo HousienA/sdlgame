@@ -44,7 +44,6 @@ struct game{
 
 int intializeWindow(Game *pGame); //removed renderer argument
 int initializeNetwork(Game *pGame);
-void process_input(Game *pGame,SDL_Event *pEvent);
 void run(Game *pGame);
 void close(Game *pGame);
 void renderHealthBar(Character *pPlayers[MAX_PLAYERS], SDL_Renderer *renderer, int playerNumber);
@@ -86,7 +85,7 @@ int initializeNetwork(Game *pGame){
     }
 
     // Allocate memory for the UDP packet
-    pGame->pPacket = SDLNet_AllocPacket(16000);
+    pGame->pPacket = SDLNet_AllocPacket(512);
     if (!pGame->pPacket) {
         printf("SDLNet_AllocPacket: %s\n", SDLNet_GetError());
         SDLNet_UDP_Close(pGame->pSocket); // Close the socket
@@ -171,7 +170,7 @@ int intializeWindow(Game *pGame) {
 }
 
 void initializeCharacters(Game *pGame){
-    pGame->num_players = 4;
+    pGame->num_players = 2;
     // Initialize additional player characters
     for(int i = 0; i < pGame->num_players; i++){
         pGame->pPlayers[i] = createCharacter(pGame->pRenderer);
@@ -195,7 +194,7 @@ void renderCharacters(Game *pGame){
             pGame->pPlayers[i]->dest.w,
             pGame->pPlayers[i]->dest.h
         };
-        //printf("Player: x: %d, y: %d\n", characterDest.x, characterDest.y);
+        
         SDL_RenderCopyEx(pGame->pRenderer, character->tex, &character->source, &characterDest, 0, NULL, SDL_FLIP_NONE);
     }
 }
@@ -212,11 +211,10 @@ void handleBulletCreation(Game *pGame, int x, int y, ClientData *cData) {
         float mag = sqrtf(dx * dx + dy * dy);
         pGame->bullets[pGame->num_bullets]->dx = dx / mag * BULLET_SPEED;
         pGame->bullets[pGame->num_bullets]->dy = dy / mag * BULLET_SPEED;
-        cData->bulletStartX = bulletStartX;
-        cData->bulletStartY = bulletStartY;
-        cData->bulletDx = pGame->bullets[pGame->num_bullets]->dx;
-        cData->bulletDy = pGame->bullets[pGame->num_bullets]->dy;
-        printf("Sending bullet data to server: startX=%d, startY=%d, dx=%3f, dy=%3f\n", cData->bulletStartX, cData->bulletStartY, cData->bulletDx, cData->bulletDy);
+        cData->bulletStartX[pGame->playerNumber] = bulletStartX;
+        cData->bulletStartY[pGame->playerNumber] = bulletStartY;
+        cData->bulletDx[pGame->playerNumber] = pGame->bullets[pGame->num_bullets]->dx *100;
+        cData->bulletDy[pGame->playerNumber] = pGame->bullets[pGame->num_bullets]->dy*100;
         pGame->num_bullets++;
     }
 }
@@ -240,12 +238,11 @@ void handle_settings(Game *pGame, const Uint8 *state) {
         pGame->slotsTaken[3] = 1;
         printf("Player number: %d\n", pGame->playerNumber+1);
     }
-    //printf("Player number: %d\n", pGame->playerNumber);
 }
 
 //function to run the game with events linked to the main struct
 void handle_input(Game *pGame) {
-    ClientData cData= {0}; 
+    ClientData cData; 
     static Uint32 lastShootTime = 0; // Variable to store the time of the last shot
     Uint32 currentTime = SDL_GetTicks(); // Get the current time in milliseconds
     int close_requested = FALSE;	
@@ -257,11 +254,12 @@ void handle_input(Game *pGame) {
 
     switch(pGame->state){
         case MENU:
+            memset(&cData, 0, sizeof(cData));
             button = SDL_GetMouseState(&mouseX, &mouseY);
 
             if(mouseX>270 && mouseX<550 && mouseY>303 && mouseY<345 &&(button && SDL_BUTTON_LMASK)){  pGame->state = ONGOING;  
                     cData.command[0]=READY;
-                    cData.playerNumber= pGame->playerNumber;
+                    cData.playerNumber = pGame->playerNumber;
                     memcpy(pGame->pPacket->data, &cData, sizeof(ClientData));
 		            pGame->pPacket->len = sizeof(ClientData);
                     SDLNet_UDP_Send(pGame->pSocket, -1,pGame->pPacket);
@@ -281,6 +279,7 @@ void handle_input(Game *pGame) {
             break;
 
         case ONGOING:
+            memset(&cData, 0, sizeof(cData));
             if (state[SDL_SCANCODE_A]) {
                 turnLeft(pGame->pPlayers[ pGame->playerNumber]);
                 cData.command[3] = LEFT;
@@ -321,7 +320,19 @@ void handle_input(Game *pGame) {
             } else if (!(SDL_GetMouseState(&x, &y) & SDL_BUTTON_LMASK)) { // If the button is not pressed, reset the flag
                 mouseClick = 0;
             };
-            sendData(pGame, &cData);
+            int commandExists = 0;
+            for(int c = 0; c < 7; c++){
+                if(cData.command[c]==FIRE || cData.command[c]==UP || cData.command[c]==DOWN || cData.command[c]==LEFT || cData.command[c]==RIGHT || cData.command[c]==BLOCKED) {
+                    commandExists = 1;
+                }
+            }
+            if (commandExists) {
+                memcpy(pGame->pPacket->data, &cData, sizeof(ClientData));
+		        pGame->pPacket->len = sizeof(ClientData);
+                sendData(pGame, &cData);
+            }
+            
+            printf("bulletStartX: %d, bulletStartY: %d, bulletDx: %d, bulletDy: %d\n", cData.bulletStartX, cData.bulletStartY, cData.bulletDx, cData.bulletDy);
             break;
     }
      if(state[SDL_SCANCODE_ESCAPE]){
@@ -359,11 +370,6 @@ void run(Game *pGame) {
         if(-1==SDLNet_UDP_Recv(pGame->pSocket, pGame->pPacket)){
             printf("Error receiving data: %s\n", SDLNet_GetError());
         }
-        /*
-        for(int i = 0; i < 4; i++){
-            printf("Player %d: x: %d, y: %d\n", i, pGame->pPlayers[i]->dest.x, pGame->pPlayers[i]->dest.y);
-        }
-        */
 
         // Render the game
         SDL_RenderClear(pGame->pRenderer);
@@ -426,18 +432,18 @@ void sendData(Game *pGame, ClientData *cData){
         cData->monkey.y = pGame->pPlayers[cData->playerNumber]->dest.y;
         cData->monkey.health = pGame->pPlayers[cData->playerNumber]->health;
         
+        
         memcpy(pGame->pPacket->data, cData, sizeof(ClientData));
         SDLNet_UDP_Send(pGame->pSocket, -1, pGame->pPacket);
     }
 }
+
 
 void updateWithServerData(Game *pGame){
     if(SDLNet_UDP_Recv(pGame->pSocket, pGame->pPacket)){
         ServerData sData;
         memcpy(&sData, pGame->pPacket->data, sizeof(ServerData));
         pGame->state = sData.gState;
-        //printf("monkey 0%d x: %d, y: %d\n", 0, sData.monkeys[0].x, sData.monkeys[0].y);
-        //printf("monkey 1%d x: %d, y: %d\n", 1, sData.monkeys[1].x, sData.monkeys[1].y);
         for(int i=0;i<sData.numberOfPlayers;i++){
             if(i!=pGame->playerNumber){
                 updateMonkeysWithRecievedData(pGame->pPlayers[i],&(sData.monkeys[i]));
@@ -473,4 +479,6 @@ void updateMonkeysWithRecievedData(Character *pPlayers, MonkeyData *monkeys){
     pPlayers->dest.y = monkeys->y;
     pPlayers->source.x = monkeys->sx;
     pPlayers->source.y = monkeys->sy;
+    pPlayers->health = monkeys->health;
+    
 }
