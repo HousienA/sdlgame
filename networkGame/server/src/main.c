@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <string.h>
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_timer.h>
@@ -48,11 +49,9 @@ struct game{
 int initiate(Game *pGame);
 void run(Game *pGame);
 void close(Game *pGame);
-void handleInput(Game *pGame,SDL_Event *pEvent);
 void add(IPaddress address, IPaddress clients[],int *pNrOfClients);
 void sendGameData(Game *pGame);
 void executeCommand(Game *pGame,ClientData cData);
-void setUpGame(Game *pGame);
 void acceptClients(Game *pGame);
 
  
@@ -149,7 +148,7 @@ void acceptClients(Game *pGame){
         if(SDLNet_UDP_Recv(pGame->pSocket,pGame->pPacket)==1) {
             // Add the player
             add(pGame->pPacket->address, pGame->serverAddress, &(pGame->num_players));
-            //printf("A new player has been added. Total players: %d\n", pGame->num_players);
+            sendGameData(pGame);
         } else {
             // No incoming packets, break out of the loop
             break;
@@ -165,7 +164,6 @@ void renderCharacters(Game *pGame){
             pGame->pPlayers[i]->dest.w,
             pGame->pPlayers[i]->dest.h
         };
-        //printf("Player: x: %d, y: %d\n", characterDest.x, characterDest.y);
         SDL_RenderCopyEx(pGame->pRenderer, character->tex, &character->source, &characterDest, 0, NULL, SDL_FLIP_NONE);
     }
 }
@@ -175,7 +173,7 @@ void run(Game *pGame){
     int close_requested = 0;
     pGame->num_bullets = 0; 
     SDL_Event event;
-    ClientData cData;
+    ClientData cData = {0};
     while(!close_requested){
        
 
@@ -183,20 +181,26 @@ void run(Game *pGame){
         {
             case ONGOING:
                 //printf("Game is ongoing\n");
-                //sendGameData(pGame);
+                sendGameData(pGame);
                 SDL_RenderCopy(pGame->pRenderer, pGame->background, NULL, NULL);
                 renderCharacters(pGame);
-                while(SDLNet_UDP_Recv(pGame->pSocket,pGame->pPacket)==1){
-                    memcpy(&cData, pGame->pPacket->data, sizeof(ClientData));
-                    executeCommand(pGame,cData);
+                if(SDLNet_UDP_Recv(pGame->pSocket,pGame->pPacket)==1){
                     
-                    for (int i = 0; i < pGame->num_bullets; i++){
-                        if(pGame->bullets[i] == NULL) continue;
-                        moveBullet(pGame->bullets[i]);
-                        drawBullet(pGame->bullets[i], pGame->pRenderer);
-                    }
+                    if(cData.command[5]==FIRE) printf("fire=on");
+                    memcpy(&cData, pGame->pPacket->data, sizeof(ClientData));
+                    printf("in ongoing:bulletStartX: %d, bulletStartY: %d, bulletDx: %d, bulletDy: %d\n", cData.bulletStartX[cData.playerNumber], cData.bulletStartY[cData.playerNumber], cData.bulletDx[cData.playerNumber], cData.bulletDy[cData.playerNumber]);
+                    executeCommand(pGame,cData);
+                    sendGameData(pGame);
+                    memset(&cData, 0, sizeof(cData));
+                    
+                    
                 }
-                
+                for (int i = 0; i < pGame->num_bullets; i++){
+                    if(pGame->bullets[i] == NULL) continue;
+                    drawBullet(pGame->bullets[i], pGame->pRenderer);
+                    moveBullet(pGame->bullets[i]);
+                        
+                }
                 
                 if(SDL_PollEvent(&event)) {
                     if(event.type==SDL_QUIT) {
@@ -242,6 +246,7 @@ void run(Game *pGame){
                 acceptClients(pGame);
                 drawText(pGame->pWaitingText);
                 SDL_RenderPresent(pGame->pRenderer);
+                sendGameData(pGame);
                 
                 //printf("Waiting for players\n");
                 if(SDL_PollEvent(&event) && event.type==SDL_QUIT) {
@@ -262,18 +267,6 @@ void run(Game *pGame){
     }
 }
 
-void setUpGame(Game *pGame){
-   
-    drawText(pGame->pJoinedText);
-    SDL_RenderPresent(pGame->pRenderer);
-    destroyText(pGame->pJoinedText);
-    pGame->num_players=MAX_PLAYERS;
-    
-
-    pGame->state = ONGOING;
-}
-
-
 
 
 void add(IPaddress address, IPaddress clients[],int *pNrOfClients){
@@ -290,17 +283,18 @@ void executeCommand(Game *pGame,ClientData cData){
     if(cData.command[3]==LEFT&& cData.command[6]!=BLOCKED) turnLeft(pGame->pPlayers[cData.playerNumber]);
     if(cData.command[4]==RIGHT&& cData.command[6]!=BLOCKED) turnRight(pGame->pPlayers[cData.playerNumber]);
     if(cData.command[5]==FIRE){
-        pGame->bullets[pGame->num_bullets] = createBullet(pGame->pRenderer, cData.bulletStartX, cData.bulletStartY);
+        printf("%d,cData.playerNumber in fire func\n", cData.playerNumber);
+        pGame->bullets[pGame->num_bullets] = createBullet(pGame->pRenderer, cData.bulletStartX[cData.playerNumber], cData.bulletStartY[cData.playerNumber]);
         if (pGame->bullets[pGame->num_bullets]) {
-            pGame->bullets[pGame->num_bullets]->dx = cData.bulletDx;
-            pGame->bullets[pGame->num_bullets]->dy = cData.bulletDy;
+            pGame->bullets[pGame->num_bullets]->dx = ((float)cData.bulletDx[cData.playerNumber])/100;
+            pGame->bullets[pGame->num_bullets]->dy = ((float)cData.bulletDy[cData.playerNumber])/100;
             pGame->num_bullets++;
-            
+            printf("bulletStartX: %d, bulletStartY: %d, bulletDx: %d, bulletDy: %d\n", cData.bulletStartX[cData.playerNumber], cData.bulletStartY[cData.playerNumber], cData.bulletDx[cData.playerNumber], cData.bulletDy[cData.playerNumber]);
+            return;
         }
-        printf("Bullet coordinates: x=%d, y=%d\n", pGame->bullets[pGame->num_bullets-1]->x, pGame->bullets[pGame->num_bullets-1]->y);
     }
-
         
+
 
      if (cData.playerNumber < 0 || cData.playerNumber >= MAX_PLAYERS) {
         printf("Error: Invalid player number %d\n", cData.playerNumber);
@@ -317,35 +311,44 @@ void executeCommand(Game *pGame,ClientData cData){
 
     //Update player data
     //pGame->pPlayers[cData.playerNumber]->health = cData.monkey.health;
-    //printf("pGame->pPlayers[%d]->dest.x: %d\n", cData.playerNumber, pGame->pPlayers[cData.playerNumber]->dest.x);
-    //printf("pGame->pPlayers[%d]->dest.y: %d\n", cData.playerNumber, pGame->pPlayers[cData.playerNumber]->dest.y);
+    
+    
+    
+}
+
+void sendGameData(Game *pGame){
     ServerData sData;
     sData.gState = pGame->state;
-    sData.slotsTaken[cData.playerNumber] = pGame->slotsTaken[cData.playerNumber];
-    sData.monkeys[cData.playerNumber].x = pGame->pPlayers[cData.playerNumber]->dest.x;
-    sData.monkeys[cData.playerNumber].y = pGame->pPlayers[cData.playerNumber]->dest.y;
-    sData.monkeys[cData.playerNumber].sx = pGame->pPlayers[cData.playerNumber]->source.x;
-    sData.monkeys[cData.playerNumber].sy = pGame->pPlayers[cData.playerNumber]->source.y;
+    for(int i=0;i<MAX_MONKEYS;i++){
+        sData.slotsTaken[i] = pGame->slotsTaken[i];
+        sData.monkeys[i].x = pGame->pPlayers[i]->dest.x;
+        sData.monkeys[i].y = pGame->pPlayers[i]->dest.y;
+        sData.monkeys[i].sx = pGame->pPlayers[i]->source.x;
+        sData.monkeys[i].sy = pGame->pPlayers[i]->source.y;
+    }
     sData.numberOfPlayers = pGame->num_players;
     memcpy(pGame->pPacket->data, &(sData), sizeof(ServerData));
-	pGame->pPacket->len = sizeof(ServerData);
-    pGame->pPacket->address = pGame->serverAddress[cData.playerNumber];
-    //printf("Sending data to player %d\n", cData.playerNumber);
-    //printf("%d", pGame->pPacket->address.host);
-	if(0==SDLNet_UDP_Send(pGame->pSocket,-1,pGame->pPacket)) printf("SDLNet_UDP_Send: %s\n", SDLNet_GetError());
+    pGame->pPacket->len = sizeof(ServerData);
+    for(int i=0;i<pGame->num_players;i++){
+        pGame->pPacket->address = pGame->serverAddress[i];
+        if(0==SDLNet_UDP_Send(pGame->pSocket,-1,pGame->pPacket)) printf("SDLNet_UDP_Send: %s\n", SDLNet_GetError());
+    }
 }
 
 void close(Game *pGame){
     for(int i=0;i<MAX_PLAYERS;i++) if(pGame->pPlayers[i]) destroyCharacter(pGame->pPlayers[i]);
     if(pGame->pRenderer) SDL_DestroyRenderer(pGame->pRenderer);
     if(pGame->pWindow) SDL_DestroyWindow(pGame->pWindow);
-    for (int i = 0; i < pGame->num_bullets; i++) { 
-        if(pGame->bullets[i]) 
-            destroyBullet(pGame->bullets[i]);
-    }
     
+    for (int i = 0; i < pGame->num_bullets; i++) {
+        if (pGame->bullets[i]) {
+            destroyBullet(pGame->bullets[i]);
+            pGame->bullets[i] = NULL;
+        }
+    }
+
     if(pGame->pPacket) SDLNet_FreePacket(pGame->pPacket);
-    if(pGame->pSocket) SDLNet_UDP_Close(pGame->pSocket);
+	if(pGame->pSocket) SDLNet_UDP_Close(pGame->pSocket);
 
     destroyText(pGame->pWaitingText);
 
