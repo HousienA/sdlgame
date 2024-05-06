@@ -26,7 +26,7 @@ struct clientData{
    MonkeyData monkey;
    int playerNumber, slotsTaken[4];
    int numberOfBullets;
-   float bulletStartX, bulletStartY, bulletDx, bulletDy;
+   int bulletStartX[MAX_MONKEYS], bulletStartY[MAX_MONKEYS], bulletDx[MAX_MONKEYS], bulletDy[MAX_MONKEYS];
 };
 typedef struct clientData ClientData;
 
